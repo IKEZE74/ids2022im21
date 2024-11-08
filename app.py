@@ -3,12 +3,11 @@ import pandas as pd
 import dns.resolver
 import smtplib
 from email_validator import validate_email, EmailNotValidError
-from groq import Groq
+import openai
 import os
 
-# Set up Groq API key
-os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
-client = Groq()
+# Set up OpenAI API key from Streamlit secrets
+openai.api_key = st.secrets["openai"]["api_key"]
 
 # Function to validate email syntax
 def is_valid_syntax(email):
@@ -108,7 +107,7 @@ def verify_emails():
             else:
                 st.error("The uploaded CSV file does not contain an 'email' column.")
 
-# Function for AI Chat
+# Function for AI Chat with OpenAI
 def chat_with_ai():
     st.subheader("Chat with the AI Assistant")
     system_prompt = "You are a helpful assistant."
@@ -132,12 +131,26 @@ def chat_with_ai():
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        # Call the Groq API to get the AI's response
+        # Call the OpenAI API to get the AI's response
         def get_completion(system_prompt, conversation_history):
-            response = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",  # or "gpt-4" if you have access
                 messages=[{"role": "system", "content": system_prompt}] + conversation_history,
             )
-            return response.choices[0].message.content.strip()
+            return response['choices'][0]['message']['content'].strip()
 
         # Get AI response and update the conversation history
+        response = get_completion(system_prompt, st.session_state.messages)
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+# Sidebar options
+st.sidebar.title("Options")
+option = st.sidebar.selectbox("Choose an option:", ("Verify Emails", "Chat with AI"))
+
+# Main section that calls the respective functions
+if option == "Verify Emails":
+    verify_emails()
+elif option == "Chat with AI":
+    chat_with_ai()
