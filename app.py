@@ -10,9 +10,6 @@ import os
 os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 client = Groq()
 
-# Set page title
-st.title("Email Verification & Conversational AI App")
-
 # Function to validate email syntax
 def is_valid_syntax(email):
     try:
@@ -60,12 +57,8 @@ def check_smtp(email, mx_records):
     except Exception as e:
         return False
 
-# Sidebar options
-st.sidebar.title("Options")
-option = st.sidebar.selectbox("Choose an option:", ("Verify Emails", "Chat with AI"))
-
-# Email Verification Functionality
-if option == "Verify Emails":
+# Function to handle email verification functionality
+def verify_emails():
     verify_option = st.selectbox("Verify a Single Email or Upload CSV?", ("Single Email", "CSV File"))
     if verify_option == "Single Email":
         single_email = st.text_input("Enter the email address:")
@@ -115,11 +108,9 @@ if option == "Verify Emails":
             else:
                 st.error("The uploaded CSV file does not contain an 'email' column.")
 
-# Conversational AI Bot Section
-elif option == "Chat with AI":
+# Function for AI Chat
+def chat_with_ai():
     st.subheader("Chat with the AI Assistant")
-
-    # Setup the system prompt and initialize conversation history
     system_prompt = "You are a helpful assistant."
     if 'messages' not in st.session_state:
         st.session_state.messages = []
@@ -150,7 +141,3 @@ elif option == "Chat with AI":
             return response.choices[0].message.content.strip()
 
         # Get AI response and update the conversation history
-        response = get_completion(system_prompt, st.session_state.messages)
-        st.session_state.messages.append({"role": "assistant", "content": response})
-        with st.chat_message("assistant"):
-            st.markdown(response)
