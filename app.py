@@ -3,9 +3,20 @@ import pandas as pd
 import dns.resolver
 import smtplib
 from email_validator import validate_email, EmailNotValidError
+from groq import Groq
+import os
 
-# Set page title
-st.title("Email Verification App")
+# Set your Groq API Key
+os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
+client = Groq()
+
+# Function to get completion from Groq
+def get_completion(system_prompt, conversation_history):
+    response = client.chat.completions.create(
+        model="llama-3.1-70b-versatile",
+        messages=[{"role": "system", "content": system_prompt}] + conversation_history,
+    )
+    return response.choices[0].message.content.strip()
 
 # Function to validate email syntax
 def is_valid_syntax(email):
@@ -65,96 +76,143 @@ def check_smtp(email, mx_records):
     except Exception as e:
         return False
 
-# Sidebar options
-st.sidebar.title("Options")
-option = st.sidebar.selectbox("Choose an option:", ("Verify Single Email", "Verify Emails from CSV"))
+def main():
+    # Set page title
+    st.title("Email Verification App with Chat")
 
-# Verify Single Email
-if option == "Verify Single Email":
-    st.subheader("Verify a Single Email Address")
-    single_email = st.text_input("Enter the email address:")
-    if st.button("Verify Email"):
-        if single_email:
-            email_status = 'INVALID'
+    # Sidebar options
+    st.sidebar.title("Options")
+    option = st.sidebar.selectbox(
+        "Choose an option:",
+        ("Verify Single Email", "Verify Emails from CSV", "Chat with AI Bot")
+    )
 
-            # Step 1: Syntax Check
-            if is_valid_syntax(single_email):
-                # Step 2: Domain and MX Record Check
-                domain = single_email.split('@')[1]
-                mx_records = get_mx_records(domain)
-                if mx_records:
-                    # Step 3: SMTP Check
-                    if check_smtp(single_email, mx_records):
-                        email_status = 'VALID'
+    # Verify Single Email
+    if option == "Verify Single Email":
+        st.subheader("Verify a Single Email Address")
+        single_email = st.text_input("Enter the email address:")
+        if st.button("Verify Email"):
+            if single_email:
+                email_status = 'INVALID'
 
-            # Display the result
-            st.write(f"The email address **{single_email}** is **{email_status}**.")
-        else:
-            st.error("Please enter an email address.")
+                # Step 1: Syntax Check
+                if is_valid_syntax(single_email):
+                    # Step 2: Domain and MX Record Check
+                    domain = single_email.split('@')[1]
+                    mx_records = get_mx_records(domain)
+                    if mx_records:
+                        # Step 3: SMTP Check
+                        if check_smtp(single_email, mx_records):
+                            email_status = 'VALID'
 
-# Verify Emails from CSV
-elif option == "Verify Emails from CSV":
-    st.subheader("Verify Emails from a CSV File")
-
-    # File uploader
-    uploaded_file = st.file_uploader("Upload a CSV file with an 'email' column", type=["csv"])
-
-    # Main processing
-    if uploaded_file is not None:
-        try:
-            # Read the CSV file
-            df = pd.read_csv(uploaded_file)
-
-            # Check if 'email' column exists
-            if 'email' not in df.columns:
-                st.error("The uploaded CSV file does not contain an 'email' column.")
+                # Display the result
+                st.write(f"The email address **{single_email}** is **{email_status}**.")
             else:
-                # Prepare the DataFrame
-                df['status'] = 'Pending'
+                st.error("Please enter an email address.")
 
-                # Display initial DataFrame
-                result_placeholder = st.empty()
-                result_placeholder.write(df)
+    # Verify Emails from CSV
+    elif option == "Verify Emails from CSV":
+        st.subheader("Verify Emails from a CSV File")
 
-                # Progress bar
-                progress_bar = st.progress(0)
+        # File uploader
+        uploaded_file = st.file_uploader("Upload a CSV file with an 'email' column", type=["csv"])
 
-                # Iterate over each email
-                total_emails = len(df)
-                for index, row in df.iterrows():
-                    email = row['email']
-                    email_status = 'INVALID'
+        # Main processing
+        if uploaded_file is not None:
+            try:
+                # Read the CSV file
+                df = pd.read_csv(uploaded_file)
 
-                    # Step 1: Syntax Check
-                    if is_valid_syntax(email):
-                        # Step 2: Domain and MX Record Check
-                        domain = email.split('@')[1]
-                        mx_records = get_mx_records(domain)
-                        if mx_records:
-                            # Step 3: SMTP Check
-                            if check_smtp(email, mx_records):
-                                email_status = 'VALID'
+                # Check if 'email' column exists
+                if 'email' not in df.columns:
+                    st.error("The uploaded CSV file does not contain an 'email' column.")
+                else:
+                    # Prepare the DataFrame
+                    df['status'] = 'Pending'
 
-                    # Update the status in DataFrame
-                    df.at[index, 'status'] = email_status
-
-                    # Update progress bar
-                    progress = (index + 1) / total_emails
-                    progress_bar.progress(progress)
-
-                    # Update the displayed DataFrame
+                    # Display initial DataFrame
+                    result_placeholder = st.empty()
                     result_placeholder.write(df)
 
-                # Display completion message
-                st.success("Email verification completed.")
+                    # Progress bar
+                    progress_bar = st.progress(0)
 
-                # Download button for the result CSV
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    label="Download Results as CSV",
-                    data=csv,
-                    file_name='email_verification_results.csv',
-                    mime='text/csv',
-                )
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+                    # Iterate over each email
+                    total_emails = len(df)
+                    for index, row in df.iterrows():
+                        email = row['email']
+                        email_status = 'INVALID'
+
+                        # Step 1: Syntax Check
+                        if is_valid_syntax(email):
+                            # Step 2: Domain and MX Record Check
+                            domain = email.split('@')[1]
+                            mx_records = get_mx_records(domain)
+                            if mx_records:
+                                # Step 3: SMTP Check
+                                if check_smtp(email, mx_records):
+                                    email_status = 'VALID'
+
+                        # Update the status in DataFrame
+                        df.at[index, 'status'] = email_status
+
+                        # Update progress bar
+                        progress = (index + 1) / total_emails
+                        progress_bar.progress(progress)
+
+                        # Update the displayed DataFrame
+                        result_placeholder.write(df)
+
+                    # Display completion message
+                    st.success("Email verification completed.")
+
+                    # Download button for the result CSV
+                    csv = df.to_csv(index=False)
+                    st.download_button(
+                        label="Download Results as CSV",
+                        data=csv,
+                        file_name='email_verification_results.csv',
+                        mime='text/csv',
+                    )
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
+
+    # Chat with AI Bot
+    elif option == "Chat with AI Bot":
+        st.subheader("Conversational AI Bot")
+        st.write("Chat with the AI assistant below.")
+
+        system_prompt = "You are a helpful assistant."
+
+        if 'messages' not in st.session_state:
+            st.session_state.messages = []
+
+        # Display chat messages from history on app rerun
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # Accept user input
+        user_input = st.chat_input("You: ")
+
+        if user_input is not None:
+            if user_input.lower() == 'exit':
+                st.write("### Ending the conversation.")
+                return
+
+            # Add user message to conversation history
+            st.session_state.messages.append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            # Get the LLM's response
+            response = get_completion(system_prompt, st.session_state.messages)
+
+            # Add assistant's response to conversation history
+            st.session_state.messages.append({"role": "assistant", "content": response})
+
+            with st.chat_message("assistant"):
+                st.markdown(response)
+
+if __name__ == "__main__":
+    main()
