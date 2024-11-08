@@ -6,8 +6,8 @@ from email_validator import validate_email, EmailNotValidError
 import openai
 import os
 
-# Set up OpenAI API key from Streamlit secrets
-openai.api_key = st.secrets["openai"]["api_key"]
+from dotenv load_dotenv
+load_dotenv()
 
 # Function to validate email syntax
 def is_valid_syntax(email):
