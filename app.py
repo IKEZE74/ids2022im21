@@ -6,22 +6,16 @@ from email_validator import validate_email, EmailNotValidError
 from groq import Groq
 import os
 
-# Set your Groq API Key
+# Set up Groq API key
 os.environ["GROQ_API_KEY"] = st.secrets["GROQ_API_KEY"]
 client = Groq()
 
-# Function to get completion from Groq
-def get_completion(system_prompt, conversation_history):
-    response = client.chat.completions.create(
-        model="llama-3.1-70b-versatile",
-        messages=[{"role": "system", "content": system_prompt}] + conversation_history,
-    )
-    return response.choices[0].message.content.strip()
+# Set page title
+st.title("Email Verification & Conversational AI App")
 
 # Function to validate email syntax
 def is_valid_syntax(email):
     try:
-        # Validate and get normalized email
         valid = validate_email(email)
         email = valid.email
         return True
@@ -52,167 +46,111 @@ def check_smtp(email, mx_records):
     from_address = 'verify@mydomain.com'
     mx_record = mx_records[0]
     try:
-        # Establish an SMTP connection
         server = smtplib.SMTP(mx_record, 25, timeout=10)
         server.ehlo_or_helo_if_needed()
-
-        # Start TLS if supported
         try:
             server.starttls()
             server.ehlo()
         except smtplib.SMTPException:
-            pass  # TLS may not be supported
-
-        # SMTP conversation
+            pass
         server.mail(from_address)
         code, message = server.rcpt(email)
         server.quit()
-
-        # 250 means the email address is valid
-        if code in [250, 251, 252]:
-            return True
-        else:
-            return False
+        return code in [250, 251, 252]
     except Exception as e:
         return False
 
-def main():
-    # Set page title
-    st.title("Email Verification App with Chat")
+# Sidebar options
+st.sidebar.title("Options")
+option = st.sidebar.selectbox("Choose an option:", ("Verify Emails", "Chat with AI"))
 
-    # Sidebar options
-    st.sidebar.title("Options")
-    option = st.sidebar.selectbox(
-        "Choose an option:",
-        ("Verify Single Email", "Verify Emails from CSV", "Chat with AI Bot")
-    )
-
-    # Verify Single Email
-    if option == "Verify Single Email":
-        st.subheader("Verify a Single Email Address")
+# Email Verification Functionality
+if option == "Verify Emails":
+    verify_option = st.selectbox("Verify a Single Email or Upload CSV?", ("Single Email", "CSV File"))
+    if verify_option == "Single Email":
         single_email = st.text_input("Enter the email address:")
         if st.button("Verify Email"):
             if single_email:
                 email_status = 'INVALID'
-
-                # Step 1: Syntax Check
                 if is_valid_syntax(single_email):
-                    # Step 2: Domain and MX Record Check
                     domain = single_email.split('@')[1]
                     mx_records = get_mx_records(domain)
                     if mx_records:
-                        # Step 3: SMTP Check
                         if check_smtp(single_email, mx_records):
                             email_status = 'VALID'
-
-                # Display the result
                 st.write(f"The email address **{single_email}** is **{email_status}**.")
             else:
                 st.error("Please enter an email address.")
-
-    # Verify Emails from CSV
-    elif option == "Verify Emails from CSV":
-        st.subheader("Verify Emails from a CSV File")
-
-        # File uploader
+    elif verify_option == "CSV File":
         uploaded_file = st.file_uploader("Upload a CSV file with an 'email' column", type=["csv"])
-
-        # Main processing
         if uploaded_file is not None:
-            try:
-                # Read the CSV file
-                df = pd.read_csv(uploaded_file)
-
-                # Check if 'email' column exists
-                if 'email' not in df.columns:
-                    st.error("The uploaded CSV file does not contain an 'email' column.")
-                else:
-                    # Prepare the DataFrame
-                    df['status'] = 'Pending'
-
-                    # Display initial DataFrame
-                    result_placeholder = st.empty()
+            df = pd.read_csv(uploaded_file)
+            if 'email' in df.columns:
+                df['status'] = 'Pending'
+                result_placeholder = st.empty()
+                result_placeholder.write(df)
+                progress_bar = st.progress(0)
+                total_emails = len(df)
+                for index, row in df.iterrows():
+                    email = row['email']
+                    email_status = 'INVALID'
+                    if is_valid_syntax(email):
+                        domain = email.split('@')[1]
+                        mx_records = get_mx_records(domain)
+                        if mx_records:
+                            if check_smtp(email, mx_records):
+                                email_status = 'VALID'
+                    df.at[index, 'status'] = email_status
+                    progress = (index + 1) / total_emails
+                    progress_bar.progress(progress)
                     result_placeholder.write(df)
+                st.success("Email verification completed.")
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="Download Results as CSV",
+                    data=csv,
+                    file_name='email_verification_results.csv',
+                    mime='text/csv',
+                )
+            else:
+                st.error("The uploaded CSV file does not contain an 'email' column.")
 
-                    # Progress bar
-                    progress_bar = st.progress(0)
+# Conversational AI Bot Section
+elif option == "Chat with AI":
+    st.subheader("Chat with the AI Assistant")
 
-                    # Iterate over each email
-                    total_emails = len(df)
-                    for index, row in df.iterrows():
-                        email = row['email']
-                        email_status = 'INVALID'
+    # Setup the system prompt and initialize conversation history
+    system_prompt = "You are a helpful assistant."
+    if 'messages' not in st.session_state:
+        st.session_state.messages = []
 
-                        # Step 1: Syntax Check
-                        if is_valid_syntax(email):
-                            # Step 2: Domain and MX Record Check
-                            domain = email.split('@')[1]
-                            mx_records = get_mx_records(domain)
-                            if mx_records:
-                                # Step 3: SMTP Check
-                                if check_smtp(email, mx_records):
-                                    email_status = 'VALID'
+    # Display chat messages from history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-                        # Update the status in DataFrame
-                        df.at[index, 'status'] = email_status
+    # Get user input
+    user_input = st.chat_input("You: ")
+    if user_input is not None:
+        if user_input.lower() == 'exit':
+            st.write("### Ending the conversation.")
+            return
 
-                        # Update progress bar
-                        progress = (index + 1) / total_emails
-                        progress_bar.progress(progress)
+        # Append user input to the conversation history
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
 
-                        # Update the displayed DataFrame
-                        result_placeholder.write(df)
+        # Call the Groq API to get the AI's response
+        def get_completion(system_prompt, conversation_history):
+            response = client.chat.completions.create(
+                model="llama-3.1-70b-versatile",
+                messages=[{"role": "system", "content": system_prompt}] + conversation_history,
+            )
+            return response.choices[0].message.content.strip()
 
-                    # Display completion message
-                    st.success("Email verification completed.")
-
-                    # Download button for the result CSV
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Results as CSV",
-                        data=csv,
-                        file_name='email_verification_results.csv',
-                        mime='text/csv',
-                    )
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
-
-    # Chat with AI Bot
-    elif option == "Chat with AI Bot":
-        st.subheader("Conversational AI Bot")
-        st.write("Chat with the AI assistant below.")
-
-        system_prompt = "You are a helpful assistant."
-
-        if 'messages' not in st.session_state:
-            st.session_state.messages = []
-
-        # Display chat messages from history on app rerun
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # Accept user input
-        user_input = st.chat_input("You: ")
-
-        if user_input is not None:
-            if user_input.lower() == 'exit':
-                st.write("### Ending the conversation.")
-                return
-
-            # Add user message to conversation history
-            st.session_state.messages.append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
-
-            # Get the LLM's response
-            response = get_completion(system_prompt, st.session_state.messages)
-
-            # Add assistant's response to conversation history
-            st.session_state.messages.append({"role": "assistant", "content": response})
-
-            with st.chat_message("assistant"):
-                st.markdown(response)
-
-if __name__ == "__main__":
-    main()
+        # Get AI response and update the conversation history
+        response = get_completion(system_prompt, st.session_state.messages)
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.markdown(response)
